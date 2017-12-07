@@ -2,23 +2,84 @@ import numpy as np
 import pickle
 import sys
 
+
+import h5py
+
+# Get data from http://www.igb.uci.edu/~pfbaldi/physics/data/hepjets/highlevel/
+import os
+if not os.path.isdir("hepjets"):
+    try:
+        os.makedirs("hepjets")
+    except OSError as e:
+        print e.strerror
+        sys.exit(e.errno)
+    import urllib
+    urllib.urlretrieve("http://www.igb.uci.edu/~pfbaldi/physics/data/hepjets/highlevel/test_no_pile_5000000.h5",filename="hepjets/test_no_pile_5000000.h5")
+    urllib.urlretrieve("http://www.igb.uci.edu/~pfbaldi/physics/data/hepjets/highlevel/test_pile_5000000.h5",filename="hepjets/test_pile_5000000.h5")
+    urllib.urlretrieve("http://www.igb.uci.edu/~pfbaldi/physics/data/hepjets/highlevel/train_no_pile_10000000.h5",filename="hepjets/train_no_pile_10000000.h5")
+    urllib.urlretrieve("http://www.igb.uci.edu/~pfbaldi/physics/data/hepjets/highlevel/train_pile_10000000.h5",filename="hepjets/train_pile_10000000.h5")
+
+if not os.path.exists("jets-pile.pickle"):
+
+    f = h5py.File("hepjets/test_no_pile_5000000.h5", "r")
+    X_no_pile = f["features"].value
+    y_no_pile = f["targets"].value.ravel()
+
+    f = h5py.File("hepjets/test_pile_5000000.h5", "r")
+    X_pile = f["features"].value
+    y_pile = f["targets"].value.ravel()
+
+
+    from sklearn.cross_validation import train_test_split
+
+    X = np.vstack((X_no_pile, X_pile))
+    y = np.concatenate((y_no_pile, y_pile)).ravel()
+    z = np.zeros(len(X))
+    z[len(X_no_pile):] = 1
+
+    strates = np.zeros(len(X))
+    strates[(y==0)&(z==0)]=0
+    strates[(y==0)&(z==1)]=1
+    strates[(y==1)&(z==0)]=2
+    strates[(y==1)&(z==1)]=3
+
+    from keras.utils import np_utils
+    z = np_utils.to_categorical(z.astype(np.int))
+
+    from sklearn.preprocessing import StandardScaler
+    tf = StandardScaler()
+    X = tf.fit_transform(X)
+
+    X_train, X_test, y_train, y_test, z_train, z_test = train_test_split(X, y, z, test_size=25000, random_state=1, stratify=strates)
+    pickle.dump((X_train, X_test, y_train, y_test, z_train, z_test),open("jets-pile.pickle","wb"))
+else:
+    X_train, X_test, y_train, y_test, z_train, z_test = pickle.load(open("jets-pile.pickle","rb"))
+
+X_train = X_train[:150000]
+y_train = y_train[:150000]
+z_train = z_train[:150000]
+
+
 import keras.backend as K
 from keras.layers import Input, Dense
 from keras.models import Model
 from keras.optimizers import SGD, Adam
 
-# Command line arguments
-lam = float(sys.argv[1])
-seed = int(sys.argv[2])
+import argparse
+parser = argparse.ArgumentParser(
+        description = "Run training"
+        )
+parser.add_argument(dest="Lambda",type=float,help="lambda parameter")
+parser.add_argument(dest="random_seed",type=int,help="random seed")
+options = parser.parse_args()
+lam = options.Lambda
+seed = options.random_seed
 np.random.seed = seed
 
 # Prepare data
-fd = open("jets-pile.pickle", "rb")
-X_train, X_test, y_train, y_test, z_train, z_test = pickle.load(fd)
 X = X_train
 y = y_train
 z = z_train
-fd.close()
 
 # mask = (z_train[:, 0] == 1)
 # X_train = X_train[mask]
